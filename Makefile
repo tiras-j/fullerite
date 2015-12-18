@@ -59,11 +59,19 @@ $(BEATIT): $(BEATIT_SOURCES)
 	@gom build -o bin/$(BEATIT) $@
 
 test: tests
-tests: deps
+tests: deps diamond_core_test
 	@echo Testing $(FULLERITE)
 	@for pkg in $(PKGS); do \
 		gom test -cover $$pkg || exit 1;\
 	done
+
+
+python_deps: deps
+	@echo Installing Python dependencies...
+	@pip install -r requirements.txt
+
+diamond_core_test: python_deps
+	@python src/diamond/test.py -d
 
 coverage_report: deps
 	@echo Creating a coverage rport for $(FULLERITE)
