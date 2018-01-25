@@ -8,6 +8,16 @@ import (
 // UWSGIMetric parser for UWSGI metrics
 type UWSGIMetric struct {
 	BaseParser
+	Format int `json:"format"`
+}
+
+type newUWSGIFormat struct {
+	ServiceDims map[string]interface{} `json:"service_dims"`
+	Counters    []map[string]interface{}
+	Gauges      []map[string]interface{}
+	Histograms  []map[string]interface{}
+	Meters      []map[string]interface{}
+	Timers      []map[string]interface{}
 }
 
 // NewUWSGIMetric creates new parser for uwsgi metrics
@@ -16,7 +26,23 @@ func NewUWSGIMetric(data []byte, schemaVer string, ccEnabled bool) *UWSGIMetric 
 	parser.data = data
 	parser.schemaVer = schemaVer
 	parser.ccEnabled = ccEnabled
+	parser.Format = 1
+	// Overwrite the data format version if it exists in the payload
+	json.Unmarshal(data, parser)
 	return parser
+}
+
+func (parser *UWSGIMetric) parseArrOfMap(metricArray []map[string]interface{}, metricType string) []metric.Metric {
+	results := []metric.Metric{}
+
+	for _, metricData := range metricArray {
+		if name, ok := metricData["name"]; ok {
+			delete(metricData, "name")
+			tempResults := parser.metricFromMap(metricData, name.(string), metricType)
+			results = append(results, tempResults...)
+		}
+	}
+	return results
 }
 
 func (parser *UWSGIMetric) parseMapOfMap(metricMap map[string]map[string]interface{}, metricType string) []metric.Metric {
@@ -31,47 +57,53 @@ func (parser *UWSGIMetric) parseMapOfMap(metricMap map[string]map[string]interfa
 
 // Parse method parses metrics and returns
 func (parser *UWSGIMetric) Parse() ([]metric.Metric, error) {
-	if parser.schemaVer == "uwsgi.1.1" {
-		return parser.parseUWSGIMetrics11()
+	var results []metric.Metric
+
+	switch parser.Format {
+	case 2:
+		parsed := new(newUWSGIFormat)
+		// Sane defaults for ServiceDims to avoid conditional later
+		parsed.ServiceDims = map[string]interface{}{}
+		err := json.Unmarshal(parser.data, parsed)
+		if err != nil {
+			return []metric.Metric{}, err
+		}
+		results = extractNewUWSGIParsedMetric(parser, parsed)
+		// Unfortunately we have to do this in both locations due to the type difference
+		// between `parsed` variable in the branches
+		for k, v := range parsed.ServiceDims {
+			metric.AddToAll(&results, map[string]string{k: v.(string)})
+		}
+	default:
+		parsed := new(Format)
+		parsed.ServiceDims = map[string]interface{}{}
+		err := json.Unmarshal(parser.data, parsed)
+		if err != nil {
+			return []metric.Metric{}, err
+		}
+		results = extractParsedMetric(parser, parsed)
+		for k, v := range parsed.ServiceDims {
+			metric.AddToAll(&results, map[string]string{k: v.(string)})
+		}
 	}
-	return parser.parseUWSGIMetrics10()
-}
-
-// parseUWSGIMetrics10 takes the json returned from the endpoint and converts
-// it into raw metrics. We first check that the metrics returned have a float value
-// otherwise we skip the metric.
-func (parser *UWSGIMetric) parseUWSGIMetrics10() ([]metric.Metric, error) {
-	parsed := new(Format)
-
-	err := json.Unmarshal(parser.data, parsed)
-	if err != nil {
-		return []metric.Metric{}, err
-	}
-
-	results := extractParsedMetric(parser, parsed)
 
 	return results, nil
 }
 
-// parseUWSGIMetrics11 will parse UWSGI metrics under the assumption of
-// the response header containing a Metrics-Schema version 'uwsgi.1.1'.
-func (parser *UWSGIMetric) parseUWSGIMetrics11() ([]metric.Metric, error) {
-	parsed := new(Format)
-
-	err := json.Unmarshal(parser.data, parsed)
-	if err != nil {
-		return []metric.Metric{}, err
+func extractNewUWSGIParsedMetric(parser *UWSGIMetric, parsed *newUWSGIFormat) []metric.Metric {
+	results := []metric.Metric{}
+	appendIt := func(metrics []metric.Metric, typeDimVal string) {
+		if !parser.isCCEnabled() {
+			metric.AddToAll(&metrics, map[string]string{"type": typeDimVal})
+		}
+		results = append(results, metrics...)
 	}
 
-	results := extractParsedMetric(parser, parsed)
+	appendIt(parser.parseArrOfMap(parsed.Gauges, metric.Gauge), "gauge")
+	appendIt(parser.parseArrOfMap(parsed.Counters, metric.Counter), "counter")
+	appendIt(parser.parseArrOfMap(parsed.Histograms, metric.Gauge), "histogram")
+	appendIt(parser.parseArrOfMap(parsed.Meters, metric.Gauge), "meter")
+	appendIt(parser.parseArrOfMap(parsed.Timers, metric.Gauge), "timer")
 
-	// This is necessary as Go doesn't allow us to type assert
-	// map[string]interface{} as map[string]string.
-	// Basically go doesn't allow type assertions for interface{}'s nested
-	// inside data structures across the entire structure since it is a linearly
-	// complex action
-	for k, v := range parsed.ServiceDims {
-		metric.AddToAll(&results, map[string]string{k: v.(string)})
-	}
-	return results, nil
+	return results
 }

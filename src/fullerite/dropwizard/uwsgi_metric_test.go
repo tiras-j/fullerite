@@ -139,6 +139,55 @@ func TestUWSGIMetricConversionDims(t *testing.T) {
 	}
 }
 
+func TestUWSGIMetricConversionNewDataFormat(t *testing.T) {
+	var jsonBlob = []byte(`{
+		"version": "3.0.0",
+		"format": 2,
+		"gauges": [],
+		"histograms": [],
+		"meters": [],
+		"timers": [],
+		"counters": [
+			{
+				"name": "tests.my_counter",
+				"count": 17.0,
+				"dimensions": {
+					"test": "counter",
+					"two": "four"
+				}
+			},
+			{
+				"name": "tests.my_counter",
+				"count": 17.0,
+				"dimensions": {
+					"test": "other",
+					"two": "five"
+				}
+			}
+		]
+	}`)
+
+	parser := NewUWSGIMetric(jsonBlob, "uwsgi.1.0", false)
+	assert.Equal(t, 2, parser.Format)
+
+	actual, err := parser.Parse()
+	if err != nil {
+		t.Fatalf("Failed to parse input json: %s", err)
+	}
+	assert.Equal(t, 2, len(actual))
+
+	for _, m := range actual {
+		assert.Equal(t, "counter", m.MetricType)
+		assert.Equal(t, 4, len(m.Dimensions))
+		assert.Equal(t, "tests.my_counter", m.Name)
+		assert.True(
+			t,
+			(m.Dimensions["test"] == "counter" && m.Dimensions["two"] == "four") ||
+				(m.Dimensions["test"] == "other" && m.Dimensions["two"] == "five"),
+		)
+	}
+}
+
 func TestUWSGIMetricConversionCumulativeCountersEnabled(t *testing.T) {
 	testMeters := make(map[string]map[string]interface{})
 	testMeters["pyramid_uwsgi_metrics.tweens.5xx-responses"] = map[string]interface{}{
