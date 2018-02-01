@@ -14,6 +14,43 @@ type UWSGIMetric struct {
 	Format int `json:"format"`
 }
 
+// This new uWSGI format collects metric objects as a list rather
+// than a map-by-name. This allows multiple instances of the same
+// metric name to have different dimension values. See below:
+//
+// {
+// 	"version": "xxx",
+//  "format": 2,
+// 	"gauges": [],
+// 	"histograms": [],
+// 	"timers": [
+// 		{
+//			"name": "pyramid_uwsgi_metrics.tweens.status.metrics",
+// 			"count": ###,
+// 			"p98": ###,
+// 			...
+//			"dimensions": {
+//				"test_dim": "value1"
+//			}
+// 		},
+// 		{
+//			"name": "pyramid_uwsgi_metrics.tweens.status.metrics",
+// 			"count": ###,
+// 			"p98": ###,
+// 			...
+//			"dimensions": {
+//				"test_dim": "value2"
+//			}
+// 		},
+// 	],
+// 	"meters": [],
+// 	"counters": [
+//		{
+//			"name": "myname",
+//			"count": ###
+//		}
+// 	]
+// }
 type newUWSGIFormat struct {
 	ServiceDims map[string]interface{} `json:"service_dims"`
 	Counters    []map[string]interface{}
