@@ -5,6 +5,9 @@ import (
 	"fullerite/metric"
 )
 
+const formatDropwizardDefault = 1
+const formatUWSGICustom = 2
+
 // UWSGIMetric parser for UWSGI metrics
 type UWSGIMetric struct {
 	BaseParser
@@ -26,7 +29,7 @@ func NewUWSGIMetric(data []byte, schemaVer string, ccEnabled bool) *UWSGIMetric 
 	parser.data = data
 	parser.schemaVer = schemaVer
 	parser.ccEnabled = ccEnabled
-	parser.Format = 1
+	parser.Format = formatDropwizardDefault
 	// Overwrite the data format version if it exists in the payload
 	json.Unmarshal(data, parser)
 	return parser
@@ -60,7 +63,7 @@ func (parser *UWSGIMetric) Parse() ([]metric.Metric, error) {
 	var results []metric.Metric
 
 	switch parser.Format {
-	case 2:
+	case formatUWSGICustom:
 		parsed := new(newUWSGIFormat)
 		// Sane defaults for ServiceDims to avoid conditional later
 		parsed.ServiceDims = map[string]interface{}{}
